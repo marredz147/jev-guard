@@ -53,7 +53,8 @@ Pick your agent; every row is one command, then give it a key.
 | Gemini CLI | `gemini extensions install https://github.com/leepokai/jev-guard` — it asks for the key on install | deny · ask → warning (no `ask` in `BeforeTool`) | flag |
 | Cursor | plugin manifest included for marketplaces; solo users: `jev-guard install cursor` | deny · **ask** for shell and MCP (`preToolUse` can't ask) | flag |
 | pi | `pi install npm:jev-guard` (or `git:github.com/leepokai/jev-guard`) | block · **confirm dialog** | flag |
-| OpenCode | `"plugin": ["jev-guard"]` in `opencode.json` (0.2.1+) | throw on deny · **ask** via `permission.ask` for tools you set to `"ask"` | flag |
+| OpenCode 1.x | `"plugin": ["jev-guard"]` in `opencode.json` (0.2.1+) | throw on deny · **ask** via `permission.ask` for tools you set to `"ask"` | flag |
+| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | throw on deny · **ask** prompt on every risky call, even for tools your rules allow | flag |
 | ACP | editor runs `jev-guard acp -- <agent>` | reject · **permission request** for `terminal/create`, `fs/write_text_file` | flag `fs/read_text_file`, `terminal/output` |
 
 Everything else goes through the npm package:
@@ -202,9 +203,9 @@ npm test          # node:test with a fake Jev; also spins up the ACP proxy again
 
 The launch video is a [Remotion](https://www.remotion.dev/) composition in `video/`: `cd video && npm i && npm run render` → `assets/launch.mp4`. The narration is generated from `video/vo.json` with `npm run vo` (edge-tts via `uvx`, no key), one clip per scene; scene lengths and the typing cues in `src/Launch.tsx` are timed to those clips.
 
-Layout: `src/jev.js` (one fetch, two backends) · `src/guard.js` (questions + policy) · `src/context.js` + `src/session.js` (what Jev gets to see) · `src/skills.js` (instruction-file sweep) · `src/hook.js` (Claude Code / Codex / Copilot / agy / Gemini / Cursor) · `src/acp.js` (proxy) · `src/opencode.js` (OpenCode plugin) · `extensions/jev-guard.ts` (pi) · `hooks/` (plugin hook manifests).
+Layout: `src/jev.js` (one fetch, two backends) · `src/guard.js` (questions + policy) · `src/context.js` + `src/session.js` (what Jev gets to see) · `src/skills.js` (instruction-file sweep) · `src/hook.js` (Claude Code / Codex / Copilot / agy / Gemini / Cursor) · `src/acp.js` (proxy) · `src/opencode.js` (OpenCode 1.x plugin) · `src/opencode-v2.js` (OpenCode 2 plugin; `src/opencode-server.js` is the `./server` entry both load) · `extensions/jev-guard.ts` (pi) · `hooks/` (plugin hook manifests).
 
-Verified end to end against the live API: Claude Code (`--plugin-dir`, headless) and OpenCode (`opencode run`, a `wrangler deploy --env production` came back as `jev-guard blocked this call`). Codex, Copilot CLI, Gemini CLI and Cursor are exercised at the payload level with their documented stdin/stdout shapes.
+Verified end to end against the live API: Claude Code (`--plugin-dir`, headless) and OpenCode (`opencode run`, a `wrangler deploy --env production` came back as `jev-guard blocked this call`). OpenCode 2 is verified end to end in 2.0.32 (`opencode run`) against a local fake System One server, not the live API: a destructive shell call was blocked, a `git push` raised a `jev-guard` permission request, and a planted instruction in a read file reached the model behind the warning. Codex, Copilot CLI, Gemini CLI and Cursor are exercised at the payload level with their documented stdin/stdout shapes.
 
 ## Security and privacy
 
