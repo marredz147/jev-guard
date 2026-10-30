@@ -8,7 +8,7 @@
   },
   "exports": {
     ".": "./src/opencode.js",
-    "./server": "./src/opencode.js",
+    "./server": "./src/opencode-server.js",
     "./guard": "./src/guard.js",
     "./jev": "./src/jev.js"
   },
