@@ -5,7 +5,7 @@
 - OpenCode/Kilo: `skill` results are checked as instruction files, not as untrusted content (#2).
 - `Task`/`Agent` results are scanned for injection; out-of-range thresholds fall back to their defaults (#3).
 - `JEV_BASE_URL` accepts plain `http` on RFC 1918 private addresses (10/8, 172.16/12, 192.168/16) and all of 127/8, e.g. a Kev in Docker at 172.17.0.1 (#6).
-- OpenCode 2: the reasoning behind each ask reaches the user as a `jev-guard` toast from the plugin's new `./tui` entry (`src/tui.js`) — the permission dialog renders only the action name and a server plugin has no UI channel, so the ask carries the text in `metadata.reason`.
+- OpenCode 2: the reasoning behind each ask reaches the user as a `jev-guard` toast from the plugin's new `./tui` entry (`src/tui.js`) — the permission dialog renders only the action name and a server plugin has no UI channel, so the ask carries the assessment in `metadata`. The toast is laid out one fact per line (`risk …/3 · approval p=…`, then `user-asked`, `untrusted` and `confidence`, then the call) instead of one wrapped sentence.
 
 ## 0.3.1 — 2026-09-18
 - Jev calls retry on 429/5xx *and* network errors inside one time budget (`JEV_GUARD_TIMEOUT_MS`, 20 s), so a hook never outlives its host's ~30 s timeout and fail-closed actually fails closed.

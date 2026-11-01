@@ -56,7 +56,11 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     try {
       await ctx.permission.assert({
         sessionID: e.sessionID, agent: e.agent, action: ACTION, resources: [`${e.tool} ${preview(e.input)}`],
-        metadata: { tool: e.tool, reason: r.message }, source: { type: "tool", messageID: e.messageID, id: e.id },
+        metadata: {
+          tool: e.tool, reason: r.message,
+          risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
+        },
+        source: { type: "tool", messageID: e.messageID, id: e.id },
       });
     } finally { asking.delete(e.id); }
   });

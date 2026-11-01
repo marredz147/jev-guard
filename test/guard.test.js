@@ -541,6 +541,9 @@ test("opencode 2: denies, prompts on risky calls even when rules allow, flags re
     // the reasoning travels in metadata.reason, which src/tui.js turns into a jev-guard toast.
     // The server half must not queue a synthetic turn just to be seen.
     assert.equal(asserts[0].metadata.reason, asserts[0].message);
+    // src/tui.js lays the toast out from these numbers instead of re-parsing the sentence.
+    assert.equal(typeof asserts[0].metadata.risk, "number");
+    assert.equal(typeof asserts[0].metadata.approval, "number");
     assert.equal(notifications.length, 0);
 
     const rejecting = fakeOpenCodeV2({ reply: "reject" });
