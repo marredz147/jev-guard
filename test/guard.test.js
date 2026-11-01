@@ -487,10 +487,13 @@ test("opencode: skill results are checked as instruction files (#2)", async () =
 
 // OpenCode 2: a fake ctx that records hooks and answers permission.assert the way the host does (rules, then evaluate hooks).
 function fakeOpenCodeV2({ reply = "once", rule = "allow", messages = [] } = {}) {
-  const hooks = {}, asserts = [], toasts = [];
+  const hooks = {}, asserts = [], notifications = [];
   const ctx = {
     location: { directory: "/repo" },
-    session: { context: async () => messages },
+    session: {
+      context: async () => messages,
+      synthetic: async (input) => { notifications.push(input); },
+    },
     tool: { hook: async (name, cb) => { hooks[name] = cb; } },
     permission: {
       hook: async (name, cb) => { hooks[`permission.${name}`] = cb; },
@@ -501,9 +504,8 @@ function fakeOpenCodeV2({ reply = "once", rule = "allow", messages = [] } = {}) 
         if (e.effect === "deny" || (e.effect === "ask" && reply === "reject")) throw new Error("rejected");
       },
     },
-    client: { tui: { showToast: async (input) => { toasts.push(input.body); } } },
   };
-  return { ctx, hooks, asserts, toasts };
+  return { ctx, hooks, asserts, notifications };
 }
 const call = (tool, input) => ({ tool, input, sessionID: "ses_v2", agent: "build", messageID: "msg_1", id: `call_${tool}_${JSON.stringify(input).length}` });
 
@@ -524,7 +526,7 @@ test("opencode 2: denies, prompts on risky calls even when rules allow, flags re
   process.env.JEV_API_KEY = "test"; process.env.JEV_GUARD_SESSIONS = join(dir, "s"); process.env.JEV_GUARD_SCAN_CACHE = join(dir, "c.json");
   const realFetch = globalThis.fetch; globalThis.fetch = fetchImpl;
   try {
-    const { ctx, hooks, asserts, toasts } = fakeOpenCodeV2();
+    const { ctx, hooks, asserts, notifications } = fakeOpenCodeV2();
     await setup(ctx, { log: () => {} });
     await assert.rejects(hooks["execute.before"](call("shell", { command: "rm -rf /" })), /blocked/);
     await hooks["execute.before"](call("shell", { command: "ls -la" }));
@@ -536,11 +538,12 @@ test("opencode 2: denies, prompts on risky calls even when rules allow, flags re
     assert.equal(asserts[0].action, "jev-guard");
     assert.match(asserts[0].message, /needs the user's approval/);
     // OpenCode's permission dialog only renders the action name for a plugin-defined action,
-    // not metadata.reason — the toast is the only place the risk assessment's reasoning reaches
+    // not metadata.reason — a session.synthetic message is how the reasoning actually reaches
     // the user, so it must fire with the same message handed to permission.assert.
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0].title, "jev-guard");
-    assert.match(toasts[0].message, /needs the user's approval/);
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].sessionID, "ses_v2");
+    assert.equal(notifications[0].delivery, "queue");
+    assert.match(notifications[0].text, /needs the user's approval/);
 
     const rejecting = fakeOpenCodeV2({ reply: "reject" });
     await setup(rejecting.ctx, { log: () => {} });

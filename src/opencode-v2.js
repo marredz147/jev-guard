@@ -26,14 +26,16 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   const asking = new Map();  // call id → message shown in the approval prompt
   // OpenCode's permission dialog renders only the action name for a plugin-defined action
   // like ours ("Call tool jev-guard" / "Tool: jev-guard"), not e.message or metadata.reason —
-  // confirmed empirically (fullscreen included) on OpenCode 2.2.5. A toast is the only way
-  // the risk assessment's reasoning actually reaches the user, so fire one alongside every
-  // ask, the same way the V1 adapter (opencode.js) already does via its own `toast` helper.
-  const toast = (message, variant = "warning") =>
-    ctx.client?.tui?.showToast?.({ body: { title: "jev-guard", message, variant, duration: 8000 } }).catch(() => {});
+  // confirmed empirically (fullscreen included) on OpenCode 2.2.5. A toast would be the natural
+  // fix, but the real Context for a V2 "server" plugin (@opencode/plugin@2.2.5, matching the
+  // installed CLI) has no `client` at all, so a toast call there is always a silent no-op —
+  // there's no supported way for this kind of plugin to raise one. ctx.session.synthetic can
+  // post a real, visible message straight into the chat, so that carries the reasoning instead.
+  // Queued (not "steer") so it never interrupts or reorders what's already running.
+  const notify = (sessionID, text) =>
+    ctx.session?.synthetic?.({ sessionID, text, description: "jev-guard", delivery: "queue" }).catch(() => {});
   const failOpen = (err) => {
     log(`jev-guard: ${err.message}`);
-    toast(err.message, "error");
     if (process.env.JEV_GUARD_FAIL_CLOSED) throw new Error(`jev-guard unavailable: ${err.message}`);
     return null;
   };
@@ -56,7 +58,7 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     if (!r || r.level === "allow") return;
     if (r.level === "deny") throw new Error(r.message);
     asking.set(e.id, r.message);
-    toast(r.message);
+    notify(e.sessionID, r.message);
     try {
       await ctx.permission.assert({
         sessionID: e.sessionID, agent: e.agent, action: ACTION, resources: [`${e.tool} ${preview(e.input)}`],
@@ -78,7 +80,6 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     if (!r?.flagged) return;
     remember(e.sessionID, "flags", { kind: r.kind, source, tool: e.tool, p: +r.p.toFixed(2), excerpt: excerpt(text), reported: true });
     log(r.message);
-    toast(r.message);
     e.result.content = [{ type: "text", text: `[${r.message}]` }, ...(e.result.content ?? [])];
   });
 }
