@@ -54,7 +54,7 @@ Pick your agent; every row is one command, then give it a key.
 | Cursor | plugin manifest included for marketplaces; solo users: `jev-guard install cursor` | deny · **ask** for shell and MCP (`preToolUse` can't ask) | flag |
 | pi | `pi install npm:jev-guard` (or `git:github.com/leepokai/jev-guard`) | block · **confirm dialog** | flag |
 | OpenCode 1.x | `"plugin": ["jev-guard"]` in `opencode.json` (0.2.1+) | throw on deny · **ask** via `permission.ask` for tools you set to `"ask"` | flag |
-| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | throw on deny · **ask** prompt on every risky call, even for tools your rules allow · reasoning in a `jev-guard` toast | flag |
+| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | throw on deny · **ask** prompt on every risky call, even for tools your rules allow · reasoning in a `jev-guard` toast that clears once you answer | flag |
 | ACP | editor runs `jev-guard acp -- <agent>` | reject · **permission request** for `terminal/create`, `fs/write_text_file` | flag `fs/read_text_file`, `terminal/output` |
 
 Everything else goes through the npm package:
