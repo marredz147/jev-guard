@@ -537,13 +537,11 @@ test("opencode 2: denies, prompts on risky calls even when rules allow, flags re
     assert.equal(asserts[0].effect, "ask");
     assert.equal(asserts[0].action, "jev-guard");
     assert.match(asserts[0].message, /needs the user's approval/);
-    // OpenCode's permission dialog only renders the action name for a plugin-defined action,
-    // not metadata.reason — a session.synthetic message is how the reasoning actually reaches
-    // the user, so it must fire with the same message handed to permission.assert.
-    assert.equal(notifications.length, 1);
-    assert.equal(notifications[0].sessionID, "ses_v2");
-    assert.equal(notifications[0].delivery, "queue");
-    assert.match(notifications[0].text, /needs the user's approval/);
+    // OpenCode's permission dialog only renders the action name for a plugin-defined action, so
+    // the reasoning travels in metadata.reason, which src/tui.js turns into a jev-guard toast.
+    // The server half must not queue a synthetic turn just to be seen.
+    assert.equal(asserts[0].metadata.reason, asserts[0].message);
+    assert.equal(notifications.length, 0);
 
     const rejecting = fakeOpenCodeV2({ reply: "reject" });
     await setup(rejecting.ctx, { log: () => {} });
