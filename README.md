@@ -54,7 +54,7 @@ Pick your agent; every row is one command, then give it a key.
 | Cursor | plugin manifest included for marketplaces; solo users: `jev-guard install cursor` | deny · **ask** for shell and MCP (`preToolUse` can't ask) | flag |
 | pi | `pi install npm:jev-guard` (or `git:github.com/leepokai/jev-guard`) | block · **confirm dialog** | flag |
 | OpenCode 1.x | `"plugin": ["jev-guard"]` in `opencode.json` (0.2.1+) | throw on deny · **ask** via `permission.ask` for tools you set to `"ask"` | flag |
-| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | throw on deny · **ask** prompt on every risky call, even for tools your rules allow · reasoning and, for an edit, its diff in a `jev-guard` banner above the input of the asking session, cleared when you answer | flag |
+| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | OpenCode's rules decide: a rule's allow runs untouched and a deny is final; only an **ask** is assessed, and Jev may then allow it silently, deny it, or leave the human prompt. Nothing is assessed before the rules have spoken, so an allowed call sends no file content. Results are not scanned unless `JEV_GUARD_SCAN_RESULTS=1` | flag |
 | ACP | editor runs `jev-guard acp -- <agent>` | reject · **permission request** for `terminal/create`, `fs/write_text_file` | flag `fs/read_text_file`, `terminal/output` |
 
 Everything else goes through the npm package:
@@ -171,6 +171,7 @@ Results shorter than 200 characters and results of local edit/search tools are s
 | `JEV_GUARD_SCAN_CACHE` | `~/.jev-guard/scan-cache.json` | instruction-file scan cache |
 | `JEV_GUARD_SKIP_TOOLS` | | comma-separated tool names never assessed |
 | `JEV_GUARD_SKIP_SCAN` | | comma-separated tool names whose results are never scanned |
+| `JEV_GUARD_SCAN_RESULTS` | unset | `1` = also scan tool results for AI-directed text (OpenCode 2 only; off by default so an ask-only gate does not ship file contents) |
 | `JEV_GUARD_WORKSPACE_WRITES` | unset | `1` = an `edit`/`write`/`multiedit`/`delete` of a file inside the project directory is not assessed; paths outside it, `.git`, `secrets`, `.env*`, keys and every shell/patch tool stay assessed |
 | `JEV_GUARD_FAIL_CLOSED` | unset | if set, an unreachable Jev **denies** instead of allowing |
 | `JEV_MODEL` | `jev-latest` / `jev-1.13` / `typesafe-ai/jev` | model id for TypeSafe or `JEV_BASE_URL` / OpenRouter / the gateway |

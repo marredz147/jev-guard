@@ -1,14 +1,16 @@
 // OpenCode 2 plugin. V2 loads `default.setup(ctx)` and has no `tool.execute.before` / `permission.ask` hooks:
-// tool calls go through ctx.tool.hook("execute.before" / "execute.after"), and every permission check, including
-// ones the user's rules already allow, passes ctx.permission.hook("evaluate") with an effect the plugin may change.
-// A risky call asks its own question through ctx.permission.assert, so it gets OpenCode's real approval prompt
-// whether or not the tool would have checked a permission itself; OpenCode's own rules still apply afterwards.
-import { assessAction, scanContent, collectText, preview, previewDiff, excerpt, INSTRUCTION_FILE } from "./guard.js";
+// tool calls go through ctx.tool.hook("execute.before" / "execute.after"), and every permission check — including
+// ones whose rules already allow the call — passes ctx.permission.hook("evaluate") with an effect the plugin may
+// change. OpenCode's own rules are the source of truth here: a rule's allow and deny are final, and only an `ask`
+// is sent to Jev, which may then allow it, deny it, or leave the human prompt in place. Nothing is assessed in
+// execute.before, so an allowed call costs no Jev request and sends no file content anywhere.
+import { assessAction, scanContent, collectText, preview, excerpt, INSTRUCTION_FILE } from "./guard.js";
 import { scanInstructionsCached } from "./skills.js";
 import { buildContext } from "./context.js";
 import { readSession, remember } from "./session.js";
 
-export const ACTION = "jev-guard";  // permission action of the approval prompt; a deny rule matching it blocks risky calls
+export const ACTION = "jev-guard";  // this adapter raises no permission of its own; kept for the TUI entry
+const MAX_PENDING = 100;
 
 /** User and assistant text from V2's ctx.session.context() messages. */
 export function messagesFromV2(messages) {
@@ -23,17 +25,12 @@ export function messagesFromV2(messages) {
 
 export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   const cwd = ctx.location?.directory;
-  const asking = new Map();  // call id → message shown in the approval prompt
-  // OpenCode's permission dialog renders only the action name for a plugin-defined action like
-  // ours ("Call tool jev-guard" / "Tool: jev-guard"), not e.message or metadata.reason (confirmed
-  // on OpenCode 2.2.5), and this Context has no UI channel of its own. The reasoning leaves
-  // through metadata on the assert below, which src/tui.js — the package's TUI entry — renders in
-  // the asking session's composer while the request is pending. `asking`/`e.message` still make the
-  // message the deny reason.
-  const failOpen = (err) => {
-    log(`jev-guard: ${err.message}`);
-    if (process.env.JEV_GUARD_FAIL_CLOSED) throw new Error(`jev-guard unavailable: ${err.message}`);
-    return null;
+  // The evaluate hook carries no tool input, only a source id, so execute.before records what is about to run.
+  // Bounded: a session that never executes what it assesses must not grow this without limit.
+  const pending = new Map();  // tool-call id → { tool, input, sessionID }
+  const rememberCall = (e) => {
+    pending.set(e.id, { tool: e.tool, input: e.input, sessionID: e.sessionID });
+    if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value);
   };
   // The session's messages; empty when they can't be read, so the call is judged on its own.
   const context = async (sessionID) => {
@@ -41,34 +38,33 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     return buildContext({ sessionId: sessionID, messages: messagesFromV2(messages) });
   };
 
-  await ctx.permission.hook("evaluate", (e) => {
-    if (e.action !== ACTION) return;
-    e.effect = "ask";  // whatever the rules say: this question exists because Jev wanted a human
-    const id = e.source?.type === "tool" ? e.source.id : undefined;
-    if (id && asking.has(id)) e.message = asking.get(id);
-  });
+  await ctx.tool.hook("execute.before", (e) => { rememberCall(e); });
 
-  await ctx.tool.hook("execute.before", async (e) => {
-    const r = await assessAction({ tool: e.tool, input: e.input, cwd, agent: "opencode", context: await context(e.sessionID) }).catch(failOpen);
-    if (r) remember(e.sessionID, "calls", { tool: e.tool, preview: preview(e.input, 100), level: r.level });
-    if (!r || r.level === "allow") return;
-    if (r.level === "deny") throw new Error(r.message);
-    asking.set(e.id, r.message);
+  await ctx.permission.hook("evaluate", async (e) => {
+    if (e.effect !== "ask") return;  // a rule allowed or denied it: that is final, Jev is not consulted
+    const id = e.source?.type === "tool" ? e.source.id : undefined;
+    const call = id ? pending.get(id) : undefined;
+    if (!call) return;  // nothing recorded to judge: the user gets the plain prompt
+    let r;
     try {
-      await ctx.permission.assert({
-        sessionID: e.sessionID, agent: e.agent, action: ACTION, resources: [`${e.tool} ${preview(e.input)}`],
-        metadata: {
-          tool: e.tool, reason: r.message,
-          risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
-          diff: previewDiff(e.input),  // omitted by JSON for a call that changes no text
-        },
-        source: { type: "tool", messageID: e.messageID, id: e.id },
-      });
-    } finally { asking.delete(e.id); }
+      r = await assessAction({ tool: call.tool, input: call.input, cwd, agent: "opencode", context: await context(call.sessionID) });
+    } catch (err) {
+      // Unavailable assessment keeps the human prompt: never auto-allow an operation nobody judged.
+      log(`jev-guard: ${err.message} — leaving this one to the user`);
+      return;
+    }
+    if (!r) return;  // read-only tool, workspace write or skip list: the prompt stands as OpenCode made it
+    remember(call.sessionID, "calls", { tool: call.tool, preview: preview(call.input, 100), level: r.level });
+    e.message = r.message;
+    if (r.level === "allow") e.effect = "allow";
+    else if (r.level === "deny") e.effect = "deny";
+    // r.level === "ask" keeps the prompt, now carrying the assessment in its message
   });
 
   await ctx.tool.hook("execute.after", async (e) => {
-    if (e.status !== "completed") return;
+    pending.delete(e.id);
+    // Ask-only: a result is content, not an operation, so scanning is opt-in and separate from the gate.
+    if (process.env.JEV_GUARD_SCAN_RESULTS !== "1" || e.status !== "completed") return;
     const input = e.input ?? {};
     const source = input.url ?? input.filePath ?? input.path;
     const instructions = /^skill$/i.test(e.tool ?? "") || (source && INSTRUCTION_FILE.test(source));  // skill passes {name}, no path
