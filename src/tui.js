@@ -14,28 +14,30 @@ export const ACTION = "jev-guard";
 export const PANEL = "jev-guard";
 const MAX_COMMAND_CHARS = 160;
 
-const row = (parts) => parts.filter(Boolean).join(" · ");
 const num = (v, digits = 2) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : undefined);
 
-/** The ask as display pieces: which tool, what Jev measured, what else it weighed, the exact call. */
+// One score per line with the scale it lives on, so a bare number is never the whole story.
+const SCORES = [
+  ["risk", (m) => num(m.risk, 1), "0–3"],
+  ["approval", (m) => num(m.approval), "0–1"],
+  ["you asked for it", (m) => num(m.userRequested), "0–1"],
+  ["untrusted source", (m) => num(m.fromUntrusted), "0–1"],
+  ["confidence", (m) => num(m.confidence), "0–1"],
+];
+
+/** The ask as display pieces: which tool, one bullet per Jev score, the exact call. */
 export function describeAsk({ metadata = {}, resources = [], action = ACTION } = {}) {
   const tool = typeof metadata.tool === "string" ? metadata.tool : undefined;
-  const risk = num(metadata.risk, 1), approval = num(metadata.approval);
   const full = String(resources[0] ?? tool ?? action);
   const command = tool && full.startsWith(`${tool} `) ? full.slice(tool.length + 1) : full;
   const what = command.length > MAX_COMMAND_CHARS ? `${command.slice(0, MAX_COMMAND_CHARS - 1)}…` : command;
-
-  if (!risk && !approval) {
-    const reason = typeof metadata.reason === "string" ? metadata.reason : `${action} needs approval`;
-    return { tool, facts: reason, evidence: undefined, what };
-  }
-  const facts = row([tool && `tool ${tool}`, risk && `risk ${risk}/3`, approval && `approval p=${approval}`]);
-  const evidence = row([
-    num(metadata.userRequested) && `user-asked p=${num(metadata.userRequested)}`,
-    num(metadata.fromUntrusted) && `untrusted p=${num(metadata.fromUntrusted)}`,
-    num(metadata.confidence) && `conf ${num(metadata.confidence)}`,
-  ]);
-  return { tool, facts, evidence, what };
+  const scores = SCORES
+    .map(([label, read, range]) => [label, read(metadata), range])
+    .filter(([, value]) => value !== undefined)
+    .map(([label, value, range]) => `• ${label} ${value} (${range})`);
+  if (scores.length) return { tool, scores, what };
+  const reason = typeof metadata.reason === "string" ? metadata.reason : `${action} needs approval`;
+  return { tool, scores, reason, what };
 }
 
 // Plain-JS equivalents of the host's JSX helpers (same calls the bundled plugins compile to).
@@ -59,10 +61,12 @@ function panelView(asks, sessionID, theme = {}) {
     const own = all[sessionID];
     const ids = Object.keys(all);
     if (own) {
+      const heading = `⚠ jev-guard — ${own.tool ?? "this call"} needs your approval`;
       return box({ width: "100%", flexDirection: "column" }, [
-        text({ fg: warn }, ["⚠ jev-guard — your approval is needed"]),
-        text({ fg: muted }, [own.facts]),
-        own.evidence && text({ fg: muted }, [own.evidence]),
+        text({ fg: warn }, [heading]),
+        ...(own.scores.length
+          ? own.scores.map((line) => text({ fg: muted }, [line]))
+          : [text({ fg: muted }, [own.reason])]),
         own.what && box({ marginTop: 1, marginBottom: 1 }, [text({ fg: warn }, [`$ ${own.what}`])]),
         text({ fg: muted }, ["Answer the permission prompt — this panel closes when you do."]),
       ].filter(Boolean));
@@ -70,7 +74,7 @@ function panelView(asks, sessionID, theme = {}) {
     if (!ids.length) return null;
     return box({ width: "100%", flexDirection: "column" }, [
       text({ fg: warn }, [`jev-guard: ${ids.length} pending request${ids.length === 1 ? "" : "s"} in other sessions`]),
-      ...ids.map((id) => text({ fg: muted }, [`${id} · ${[all[id].facts, all[id].what].filter(Boolean).join(" · ")}`])),
+      ...ids.map((id) => text({ fg: muted }, [`${id} · ${[all[id].scores[0], all[id].what].filter(Boolean).join(" · ")}`])),
     ]);
   });
   return root;
