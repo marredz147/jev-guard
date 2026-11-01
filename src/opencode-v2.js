@@ -27,8 +27,9 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   // OpenCode's permission dialog renders only the action name for a plugin-defined action like
   // ours ("Call tool jev-guard" / "Tool: jev-guard"), not e.message or metadata.reason (confirmed
   // on OpenCode 2.2.5), and this Context has no UI channel of its own. The reasoning leaves
-  // through metadata.reason on the assert below, which src/tui.js — the package's TUI entry —
-  // turns into a jev-guard toast. `asking`/`e.message` still make the message the deny reason.
+  // through metadata on the assert below, which src/tui.js — the package's TUI entry — shows in the
+  // asking session's composer while the request is pending. `asking`/`e.message` still make the
+  // message the deny reason.
   const failOpen = (err) => {
     log(`jev-guard: ${err.message}`);
     if (process.env.JEV_GUARD_FAIL_CLOSED) throw new Error(`jev-guard unavailable: ${err.message}`);
