@@ -1,6 +1,6 @@
 // The two checks every adapter shares. Code owns the policy; Jev answers narrow questions.
 import { isAbsolute, relative, resolve } from "node:path";
-import { ask } from "./jev.js";
+import { ask, setting } from "./jev.js";
 
 export const SCAN_QUESTIONS = {
   directed: {
@@ -126,7 +126,7 @@ export function targetPath(input) {
 
 /** True when JEV_GUARD_WORKSPACE_WRITES=1 and this call edits a non-secret file inside `cwd`, so Jev is never asked. */
 export function workspaceWrite({ tool, input, cwd, env = process.env }) {
-  if (env.JEV_GUARD_WORKSPACE_WRITES !== "1") return false;
+  if (setting("JEV_GUARD_WORKSPACE_WRITES", env) !== "1") return false;
   if (!WORKSPACE_WRITES.has(String(tool ?? "").toLowerCase())) return false;
   const target = targetPath(input);
   if (!target || !cwd || PROTECTED_PATH.test(target)) return false;
@@ -141,7 +141,8 @@ const MAX_STATE_CHARS = 60_000; // Jev's state ceiling is ~32k tokens
 export function thresholds(env = process.env) {
   // Out-of-range values fall back to the default: an env var set by something else must not switch the guard off silently.
   const n = (k, d, max = 1) => {
-    const v = env[k] === undefined || env[k] === "" ? NaN : +env[k];
+    const raw = setting(k, env);
+    const v = raw === undefined || raw === "" ? NaN : +raw;
     return v >= 0 && v <= max ? v : d;
   };
   return { denyScore: n("JEV_GUARD_DENY_SCORE", 2.5, 3), askScore: n("JEV_GUARD_ASK_SCORE", 1.5, 3), askP: n("JEV_GUARD_ASK_P", 0.75), injectP: n("JEV_GUARD_INJECT_P", 0.6),
@@ -164,7 +165,7 @@ export function decide({ risk, approval, user_requested, from_untrusted }, t = t
 export async function assessAction({ tool, input, cwd, agent, context }, opts = {}) {
   const env = opts.env ?? process.env;
   const name = String(tool ?? "").toLowerCase();
-  if (READ_ONLY.has(name) || list(env.JEV_GUARD_SKIP_TOOLS).has(name)) return null;
+  if (READ_ONLY.has(name) || list(setting("JEV_GUARD_SKIP_TOOLS", env)).has(name)) return null;
   if (workspaceWrite({ tool, input, cwd, env })) return null;
   const a = await ask(context ? { agent, tool, input, cwd, context } : { agent, tool, input, cwd }, ACTION_QUESTIONS, opts);
   const { level, why } = decide(a, thresholds(env));
@@ -184,7 +185,7 @@ export async function assessAction({ tool, input, cwd, agent, context }, opts = 
 export async function scanContent({ text, tool, source, task }, opts = {}) {
   const env = opts.env ?? process.env;
   const name = String(tool ?? "").toLowerCase();
-  if (NEVER_EXTERNAL.has(name) || list(env.JEV_GUARD_SKIP_SCAN).has(name)) return null;
+  if (NEVER_EXTERNAL.has(name) || list(setting("JEV_GUARD_SKIP_SCAN", env)).has(name)) return null;
   if (!text || text.length < MIN_SCAN_CHARS) return null;
   const a = await ask({ source: source ?? tool, ...(task ? { user_task: task } : {}), content: truncate(text) }, SCAN_QUESTIONS, opts);
   const kind = a.kind?.choice ?? "unknown";

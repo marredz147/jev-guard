@@ -5,7 +5,7 @@ import { decide, collectText, truncate, assessAction, scanContent, previewDiff }
 import { handleHook } from "../src/hook.js";
 import { runProxy } from "../src/acp.js";
 
-const env = { JEV_API_KEY: "test" };
+const env = { JEV_API_KEY: "test", JEV_GUARD_CONFIG: "/nonexistent/jev-guard-config.json" };
 
 // Fake Jev: answers keyed off the state, in TypeSafe's response shape.
 async function fetchImpl(_url, { body }) {
@@ -43,6 +43,26 @@ test("decide thresholds", () => {
   assert.equal(decide({ risk: { score: 2.0 }, approval: { p: 0.9 }, user_requested: { p: 0.95 } }).level, "allow");
   assert.equal(decide({ risk: { score: 2.9 }, approval: { p: 0.9 }, user_requested: { p: 0.99 } }).level, "deny");
   assert.equal(decide({ risk: { score: 0.2 }, approval: { p: 0.1 }, from_untrusted: { p: 0.9 } }).level, "deny");
+});
+
+test("settings fall back to ~/.jev-guard/config.json when the host exports no env", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { setting } = await import("../src/jev.js");
+  const dir = mkdtempSync(join(tmpdir(), "jev-guard-cfg-"));
+  const file = join(dir, "config.json");
+  writeFileSync(file, JSON.stringify({ jevApiKey: "k", JEV_GUARD_WORKSPACE_WRITES: "1", JEV_GUARD_DENY_SCORE: "2" }));
+  const cfgEnv = { JEV_GUARD_CONFIG: file };
+  assert.equal(setting("JEV_GUARD_WORKSPACE_WRITES", cfgEnv), "1");
+  assert.equal(setting("JEV_GUARD_DENY_SCORE", cfgEnv), "2");
+  assert.equal(setting("JEV_GUARD_ESCALATE_CLOSED", cfgEnv), undefined);
+  // the environment still wins
+  assert.equal(setting("JEV_GUARD_DENY_SCORE", { ...cfgEnv, JEV_GUARD_DENY_SCORE: "3" }), "3");
+  // and the policy uses it: a workspace write is skipped with only the config file saying so
+  const inside = { tool: "edit", input: { filePath: "/repo/a.txt" }, cwd: "/repo" };
+  assert.equal(await assessAction(inside, { env: cfgEnv, fetchImpl }), null);
+  assert.notEqual(await assessAction(inside, { env: { ...cfgEnv, JEV_GUARD_WORKSPACE_WRITES: "0" }, fetchImpl }), null);
 });
 
 test("collectText and truncate", () => {
@@ -563,7 +583,7 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const dir = mkdtempSync(join(tmpdir(), "jev-guard-oc2-"));
-  process.env.JEV_API_KEY = "test"; process.env.JEV_GUARD_SESSIONS = join(dir, "s"); process.env.JEV_GUARD_SCAN_CACHE = join(dir, "c.json");
+  process.env.JEV_API_KEY = "test"; process.env.JEV_GUARD_SESSIONS = join(dir, "s"); process.env.JEV_GUARD_SCAN_CACHE = join(dir, "c.json"); process.env.JEV_GUARD_CONFIG = join(dir, "cfg.json");
   let requests = 0;
   const realFetch = globalThis.fetch;
   globalThis.fetch = (...args) => { requests++; return fetchImpl(...args); };
@@ -673,7 +693,7 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
     await hooks["execute.after"](on);
     assert.match(on.result.content[0].text, /^\[jev-guard: .*injection/);
     delete process.env.JEV_GUARD_SCAN_RESULTS;
-  } finally { globalThis.fetch = realFetch; delete process.env.JEV_API_KEY; delete process.env.JEV_GUARD_SESSIONS; delete process.env.JEV_GUARD_SCAN_CACHE; }
+  } finally { globalThis.fetch = realFetch; delete process.env.JEV_API_KEY; delete process.env.JEV_GUARD_SESSIONS; delete process.env.JEV_GUARD_SCAN_CACHE; delete process.env.JEV_GUARD_CONFIG; }
 });
 
 test("opencode 2: a native ask the user asked for is allowed without prompting", async () => {

@@ -180,6 +180,8 @@ Results shorter than 200 characters and results of local edit/search tools are s
 | `JEV_BASE_API_KEY` | unset | bearer key sent only to `JEV_BASE_URL` |
 | `JEV_GUARD_CONFIG` | `~/.jev-guard/config.json` | where `jev-guard key` stores the key |
 
+Every `JEV_GUARD_*` setting above is also read from `~/.jev-guard/config.json` under the same name when the environment does not set it (the environment wins). That is what hosts started without a login shell — an IDE daemon, a service manager — actually see, and it is the same file that holds the API key.
+
 Scores must lie in 0–3 and probabilities in 0–1; anything else falls back to the default.
 
 By default jev-guard fails **open** with a warning on stderr: a dead API must not freeze your agent. Flip it if you'd rather it did. On OpenCode 2 the host already owns the decision, so there is never an open failure to flip: an unreachable Jev leaves the prompt standing, `JEV_GUARD_ESCALATE_CLOSED=1` raises the guard's own prompt with "the assessment API was not available", and `JEV_GUARD_FAIL_CLOSED=1` denies outright.

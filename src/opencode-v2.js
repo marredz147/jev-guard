@@ -5,6 +5,7 @@
 // is sent to Jev, which may then allow it, deny it, or leave the human prompt in place. Nothing is assessed in
 // execute.before, so an allowed call costs no Jev request and sends no file content anywhere.
 import { assessAction, scanContent, collectText, preview, previewDiff, excerpt, INSTRUCTION_FILE } from "./guard.js";
+import { setting } from "./jev.js";
 import { scanInstructionsCached } from "./skills.js";
 import { buildContext } from "./context.js";
 import { readSession, remember } from "./session.js";
@@ -76,13 +77,13 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     } catch (err) {
       log(`jev-guard: ${err.message}`);
       // Fail-closed first: an unreachable API denies, and it wins over escalating.
-      if (process.env.JEV_GUARD_FAIL_CLOSED) {
+      if (setting("JEV_GUARD_FAIL_CLOSED")) {
         e.effect = "deny";
         e.message = `jev-guard unavailable: ${err.message}`;
         return;
       }
       // Escalating still gives the user a prompt, but one that says the call was never judged.
-      if (process.env.JEV_GUARD_ESCALATE_CLOSED === "1") {
+      if (setting("JEV_GUARD_ESCALATE_CLOSED") === "1") {
         await raise(e, call, resource, id, `jev-guard: the assessment API was not available (${err.message}) — this call was not judged`);
         return;
       }
@@ -106,7 +107,7 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   await ctx.tool.hook("execute.after", async (e) => {
     pending.delete(e.id);
     // Ask-only: a result is content, not an operation, so scanning is opt-in and separate from the gate.
-    if (process.env.JEV_GUARD_SCAN_RESULTS !== "1" || e.status !== "completed") return;
+    if (setting("JEV_GUARD_SCAN_RESULTS") !== "1" || e.status !== "completed") return;
     const input = e.input ?? {};
     const source = input.url ?? input.filePath ?? input.path;
     const instructions = /^skill$/i.test(e.tool ?? "") || (source && INSTRUCTION_FILE.test(source));  // skill passes {name}, no path
