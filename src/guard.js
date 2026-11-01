@@ -101,12 +101,12 @@ export const ACTION_QUESTIONS = {
 // Tools whose calls are never worth a Jev round-trip (read-only), and whose results are never external content.
 // Names as each agent reports them: Claude/Codex/Copilot (Read, Bash…), pi/OpenCode (read, bash, list…), Gemini/agy (view_file, search_web, read_file…), Cursor (Shell, Delete, MCP:x).
 const READ_ONLY = new Set(["read", "glob", "grep", "ls", "list", "find", "webfetch", "websearch", "todowrite", "todoread", "askuserquestion", "exitplanmode",
-  "notebookread", "listmcpresourcestool", "readmcpresourcetool", "toolsearch", "skill", "task", "agent", "tabs_context_mcp", "read_page", "get_page_text",
+  "notebookread", "listmcpresourcestool", "readmcpresourcetool", "toolsearch", "skill", "task", "agent", "subagent", "tabs_context_mcp", "read_page", "get_page_text",
   "read_file", "read_many_files", "list_directory", "search_file_content", "grep_search", "google_web_search", "web_fetch", "write_todos",
   "view_file", "search_web", "read_url_content", "ask_question"]);
 const NEVER_EXTERNAL = new Set(["edit", "write", "multiedit", "notebookedit", "apply_patch", "patch", "delete", "glob", "grep", "ls", "list", "find", "todowrite", "todoread",
   "askuserquestion", "exitplanmode", "write_file", "replace", "write_todos", "write_to_file", "replace_file_content"]);
-// task/agent sit only in READ_ONLY: the sub-agent's own calls are judged one by one, but what it brings back can carry external text.
+// task/agent/subagent (OpenCode 2) sit only in READ_ONLY: the sub-agent's own calls are judged one by one, but what it brings back can carry external text.
 export const MIN_SCAN_CHARS = 200;
 const MAX_STATE_CHARS = 60_000; // Jev's state ceiling is ~32k tokens
 
