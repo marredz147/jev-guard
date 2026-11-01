@@ -97,16 +97,24 @@ export function bannerView(asks, sessionID, theme = {}) {
     const ask = list?.[0];  // the oldest pending ask is the one a reply without an id answers
     if (!ask) return null;
     const diffLine = (line) => text({ fg: line.startsWith("+") ? added : line.startsWith("-") ? removed : muted }, [line]);
-    return box({ width: "100%", flexDirection: "column", marginTop: 1 }, [
-      text({ fg: warn }, [`⚠ jev-guard — ${ask.verb} needs your approval`]),
+    // Three visual blocks — request, evidence, report — separated by a blank line each, so the
+    // banner reads at a glance instead of as one run of text.
+    const request = box({ flexDirection: "column", marginTop: 1 }, [
       ask.what && text({ fg: warn }, [`What: ${ask.tool ?? "call"} — ${ask.what}`]),
       ask.diff?.length && box({ flexDirection: "column", marginTop: 1 }, ask.diff.map(diffLine)),
-      ...(ask.scores.length
-        ? ask.scores.map((line) => text({ fg: muted }, [line]))
-        : [text({ fg: muted }, [ask.reason])]),
+    ].filter(Boolean));
+    const report = box({ flexDirection: "column", marginTop: 1 },
+      ask.scores.length ? ask.scores.map((line) => text({ fg: muted }, [line])) : [text({ fg: muted }, [ask.reason])]);
+    const closing = box({ flexDirection: "column", marginTop: 1 }, [
       list.length > 1 && text({ fg: muted }, [`${list.length - 1} more pending after this one.`]),
       text({ fg: muted }, ["Answer the permission prompt — this clears when you do."]),
     ].filter(Boolean));
+    return box({ width: "100%", flexDirection: "column", marginTop: 1 }, [
+      text({ fg: warn }, [`⚠ jev-guard — ${ask.verb} needs your approval`]),
+      request,
+      report,
+      closing,
+    ]);
   });
   return root;
 }
