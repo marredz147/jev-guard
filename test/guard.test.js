@@ -73,6 +73,9 @@ test("workspace writes skip Jev only with JEV_GUARD_WORKSPACE_WRITES=1", async (
 
 
 test("assessAction skips read-only tools, scores the rest", async () => {
+  // "question" is how OpenCode 2 names the asking tool; asking the user must never be judged
+  assert.equal(await assessAction({ tool: "question", input: { questions: [] } }, opts), null);
+  assert.equal(await assessAction({ tool: "read_mcp_resource", input: {} }, opts), null);
   assert.equal(await assessAction({ tool: "Read", input: {} }, opts), null);
   assert.equal((await assessAction({ tool: "Bash", input: { command: "rm -rf /" } }, opts)).level, "deny");
   assert.equal((await assessAction({ tool: "Bash", input: { command: "git push" } }, opts)).level, "ask");

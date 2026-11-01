@@ -102,6 +102,7 @@ export const ACTION_QUESTIONS = {
 // Tools whose calls are never worth a Jev round-trip (read-only), and whose results are never external content.
 // Names as each agent reports them: Claude/Codex/Copilot (Read, Bash…), pi/OpenCode (read, bash, list…), Gemini/agy (view_file, search_web, read_file…), Cursor (Shell, Delete, MCP:x).
 const READ_ONLY = new Set(["read", "glob", "grep", "ls", "list", "find", "webfetch", "websearch", "todowrite", "todoread", "askuserquestion", "exitplanmode",
+  "question", "read_mcp_resource", "list_mcp_resources",
   "notebookread", "listmcpresourcestool", "readmcpresourcetool", "toolsearch", "skill", "task", "agent", "subagent", "tabs_context_mcp", "read_page", "get_page_text",
   "read_file", "read_many_files", "list_directory", "search_file_content", "grep_search", "google_web_search", "web_fetch", "write_todos",
   "view_file", "search_web", "read_url_content", "ask_question"]);
