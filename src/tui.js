@@ -13,7 +13,7 @@ import { createElement, insert, setProp } from "@opentui/solid";
 import { createSignal } from "solid-js";
 
 export const ACTION = "jev-guard";
-const MAX_COMMAND_CHARS = 160;
+const MAX_COMMAND_CHARS = 240;
 
 const num = (v, digits = 2) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : undefined);
 
@@ -61,7 +61,8 @@ export function bannerView(asks, sessionID, theme = {}) {
   const removed = theme.error ?? theme.warning ?? theme.text?.default;
   const root = box({ width: "100%", flexDirection: "column", paddingLeft: 1 });
   insert(root, () => {
-    const ask = asks()[sessionID];
+    const list = asks()[sessionID];
+    const ask = list?.[0];  // the oldest pending ask is the one a reply without an id answers
     if (!ask) return null;
     const diffLine = (line) => text({ fg: line.startsWith("+") ? added : line.startsWith("-") ? removed : muted }, [line]);
     return box({ width: "100%", flexDirection: "column", marginTop: 1 }, [
@@ -71,6 +72,7 @@ export function bannerView(asks, sessionID, theme = {}) {
         ? ask.scores.map((line) => text({ fg: muted }, [line]))
         : [text({ fg: muted }, [ask.reason])]),
       ask.what && box({ marginTop: 1, marginBottom: 1 }, [text({ fg: warn }, [`$ ${ask.what}`])]),
+      list.length > 1 && text({ fg: muted }, [`${list.length - 1} more pending after this one.`]),
       text({ fg: muted }, ["Answer the permission prompt — this clears when you do."]),
     ].filter(Boolean));
   });
@@ -78,21 +80,33 @@ export function bannerView(asks, sessionID, theme = {}) {
 }
 
 export function setup(ctx) {
-  const [asks, setAsks] = createSignal({});  // sessionID -> describeAsk(...)
+  const [asks, setAsks] = createSignal({});  // sessionID -> [{ id, ...describeAsk(data) }], oldest first
 
   const offAsk = ctx.data.on("permission.asked", ({ data }) => {
     if (data?.action !== ACTION || !data.sessionID) return;
-    const described = describeAsk(data);
-    setAsks((prev) => ({ ...prev, [data.sessionID]: described }));
+    const entry = { id: data.id, ...describeAsk(data) };
+    setAsks((prev) => {
+      const list = prev[data.sessionID] ?? [];
+      const next = list.some((a) => a.id === entry.id)
+        ? list.map((a) => (a.id === entry.id ? entry : a))
+        : [...list, entry];
+      return { ...prev, [data.sessionID]: next };
+    });
   });
-  // The reply event carries no action and no guaranteed request id, but asks are one per session:
-  // answering one anywhere (desktop, mobile client, Orca) clears the banner in every TUI.
+  // A reply may carry no request id and no action. Match the id when it is there; otherwise drop the
+  // oldest ask, which is the prompt the user was looking at. Parallel asks keep their own entry, so
+  // answering one no longer erases the assessment of another.
   const offReply = ctx.data.on("permission.replied", ({ data }) => {
     if (!data?.sessionID) return;
     setAsks((prev) => {
-      if (!(data.sessionID in prev)) return prev;
+      const list = prev[data.sessionID];
+      if (!list?.length) return prev;
+      const rest = data.requestID && list.some((a) => a.id === data.requestID)
+        ? list.filter((a) => a.id !== data.requestID)
+        : list.slice(1);
       const next = { ...prev };
-      delete next[data.sessionID];
+      if (rest.length) next[data.sessionID] = rest;
+      else delete next[data.sessionID];
       return next;
     });
   });

@@ -38,6 +38,21 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     const messages = await ctx.session.context({ sessionID }).catch(() => []);
     return buildContext({ sessionId: sessionID, messages: messagesFromV2(messages) });
   };
+  // Raise the guard's own prompt for one call: only a human allow turns it into an allow here.
+  const raise = async (e, call, resource, id, message, scores = {}) => {
+    asking.set(id, message);
+    try {
+      await ctx.permission.assert({
+        sessionID: call.sessionID, agent: e.agent, action: ACTION, resources: [resource],
+        metadata: { tool: call.tool, reason: message, ...scores },
+        source: { type: "tool", messageID: call.messageID, id },  // both are required by AssertInput
+      });
+      e.effect = "allow";
+    } catch (err) {
+      e.effect = "deny";
+      e.message = err?.message ?? "rejected";
+    } finally { asking.delete(id); }
+  };
 
   await ctx.tool.hook("execute.before", (e) => { rememberCall(e); });
 
@@ -52,13 +67,26 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     const id = e.source?.type === "tool" ? e.source.id : undefined;
     const call = id ? pending.get(id) : undefined;
     if (!call) return;  // nothing recorded to judge: the user gets the plain prompt
+    // What the host is actually asking about beats our own rendering of the input: it knows the
+    // exact command line or paths, and its resources are not truncated the way a preview is.
+    const resource = e.resources?.length ? e.resources.join(", ") : `${call.tool} ${preview(call.input)}`;
     let r;
     try {
       r = await assessAction({ tool: call.tool, input: call.input, cwd, agent: "opencode", context: await context(call.sessionID) });
     } catch (err) {
-      // Unavailable assessment keeps the human prompt: never auto-allow an operation nobody judged.
-      log(`jev-guard: ${err.message} — leaving this one to the user`);
-      return;
+      log(`jev-guard: ${err.message}`);
+      // Fail-closed first: an unreachable API denies, and it wins over escalating.
+      if (process.env.JEV_GUARD_FAIL_CLOSED) {
+        e.effect = "deny";
+        e.message = `jev-guard unavailable: ${err.message}`;
+        return;
+      }
+      // Escalating still gives the user a prompt, but one that says the call was never judged.
+      if (process.env.JEV_GUARD_ESCALATE_CLOSED === "1") {
+        await raise(e, call, resource, id, `jev-guard: the assessment API was not available (${err.message}) — this call was not judged`);
+        return;
+      }
+      return;  // default: the host's own prompt stands
     }
     if (!r) return;  // read-only tool, workspace write or skip list: the prompt stands as OpenCode made it
     remember(call.sessionID, "calls", { tool: call.tool, preview: preview(call.input, 100), level: r.level });
@@ -69,22 +97,10 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     // as far as 2.2.5 goes, not `e.message` either. So raise the prompt ourselves for this one
     // call; ./tui renders its metadata above the composer. The native prompt is skipped by
     // answering "allow" here once the human has allowed it, and turned into a deny if they refuse.
-    asking.set(id, r.message);
-    try {
-      await ctx.permission.assert({
-        sessionID: call.sessionID, agent: e.agent, action: ACTION, resources: [`${call.tool} ${preview(call.input)}`],
-        metadata: {
-          tool: call.tool, reason: r.message,
-          risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
-          diff: previewDiff(call.input),  // omitted by JSON for a call that changes no text
-        },
-        source: { type: "tool", messageID: call.messageID, id },  // both are required by AssertInput
-      });
-      e.effect = "allow";
-    } catch (err) {
-      e.effect = "deny";
-      e.message = err?.message ?? "rejected";
-    } finally { asking.delete(id); }
+    await raise(e, call, resource, id, r.message, {
+      risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
+      diff: previewDiff(call.input),  // omitted by JSON for a call that changes no text
+    });
   });
 
   await ctx.tool.hook("execute.after", async (e) => {

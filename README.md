@@ -121,7 +121,7 @@ ask    if risk ≥ 1.5 or approval ≥ 0.75
 allow  otherwise
 ```
 
-Read-only tools (`Read`, `Grep`, `Glob`, `WebFetch`, …) are skipped without a call. So are `Skill`, `Task` and `Agent`: a skill's text is checked as an instruction file when it loads, and a sub-agent's own tool calls are judged one by one. Their results are still scanned.
+Read-only tools (`Read`, `Grep`, `Glob`, `WebFetch`, …) are skipped without a call. So are `Skill`, `Task` and `Agent`: a skill's text is checked as an instruction file when it loads, and a sub-agent's own tool calls are judged one by one. Their results are still scanned, except on OpenCode 2, where scanning is opt-in (`JEV_GUARD_SCAN_RESULTS=1`) so an ask-only gate does not ship tool output.
 
 **Context** is what makes the last two questions answerable. Each session keeps a small file under `~/.jev-guard/sessions/` with the user's recent prompts, the agent's stated intent, the last decisions, and every flagged piece of untrusted content with an excerpt of the planted instruction. Prompts arrive through the hosts' prompt hooks (`UserPromptSubmit`, `BeforeAgent`, `beforeSubmitPrompt`, ACP `session/prompt`) or the session itself (pi, OpenCode, Claude Code's transcript). Nothing in a tool result ever counts as the user speaking.
 
@@ -173,7 +173,8 @@ Results shorter than 200 characters and results of local edit/search tools are s
 | `JEV_GUARD_SKIP_SCAN` | | comma-separated tool names whose results are never scanned |
 | `JEV_GUARD_SCAN_RESULTS` | unset | `1` = also scan tool results for AI-directed text (OpenCode 2 only; off by default so an ask-only gate does not ship file contents) |
 | `JEV_GUARD_WORKSPACE_WRITES` | unset | `1` = an `edit`/`write`/`multiedit`/`delete` of a file inside the project directory is not assessed; paths outside it, `.git`, `secrets`, `.env*`, keys and every shell/patch tool stay assessed |
-| `JEV_GUARD_FAIL_CLOSED` | unset | if set, an unreachable Jev **denies** instead of allowing |
+| `JEV_GUARD_FAIL_CLOSED` | unset | if set, an unreachable Jev **denies** instead of allowing; it wins over `JEV_GUARD_ESCALATE_CLOSED` when both are set |
+| `JEV_GUARD_ESCALATE_CLOSED` | unset | `1` = an unreachable Jev still raises the guard's own prompt, saying the API was not available and that the call was not judged (instead of the host's plain prompt) |
 | `JEV_MODEL` | `jev-latest` / `jev-1.13` / `typesafe-ai/jev` | model id for TypeSafe or `JEV_BASE_URL` / OpenRouter / the gateway |
 | `JEV_BASE_URL` | unset | any System One server (`<base>/v1/systemone`), e.g. a local Kev; takes precedence over every key |
 | `JEV_BASE_API_KEY` | unset | bearer key sent only to `JEV_BASE_URL` |
@@ -181,7 +182,7 @@ Results shorter than 200 characters and results of local edit/search tools are s
 
 Scores must lie in 0–3 and probabilities in 0–1; anything else falls back to the default.
 
-By default jev-guard fails **open** with a warning on stderr: a dead API must not freeze your agent. Flip it if you'd rather it did.
+By default jev-guard fails **open** with a warning on stderr: a dead API must not freeze your agent. Flip it if you'd rather it did. On OpenCode 2 the host already owns the decision, so there is never an open failure to flip: an unreachable Jev leaves the prompt standing, `JEV_GUARD_ESCALATE_CLOSED=1` raises the guard's own prompt with "the assessment API was not available", and `JEV_GUARD_FAIL_CLOSED=1` denies outright.
 
 ## CLI
 

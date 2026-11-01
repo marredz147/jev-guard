@@ -628,6 +628,31 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
     assert.equal(unreachable.effect, "ask");
     globalThis.fetch = (...args) => { requests++; return fetchImpl(...args); };
 
+    // fail-closed denies instead of falling back to the plain prompt…
+    globalThis.fetch = async () => { throw new Error("network down"); };
+    process.env.JEV_GUARD_FAIL_CLOSED = "1";
+    await hooks["execute.before"]({ ...call("shell", { command: "git push origin main" }), id: "c_fc" });
+    const failClosed = { action: "shell", resources: ["x"], effect: "ask", source: { type: "tool", id: "c_fc" } };
+    await hooks["permission.evaluate"](failClosed);
+    assert.equal(failClosed.effect, "deny");
+    assert.match(failClosed.message, /unavailable/);
+    // …and it wins over escalating
+    process.env.JEV_GUARD_ESCALATE_CLOSED = "1";
+    await hooks["execute.before"]({ ...call("shell", { command: "git push origin main" }), id: "c_both" });
+    const both = { action: "shell", resources: ["x"], effect: "ask", source: { type: "tool", id: "c_both" } };
+    await hooks["permission.evaluate"](both);
+    assert.equal(both.effect, "deny");
+    // escalating alone still asks, but says the call was never judged
+    delete process.env.JEV_GUARD_FAIL_CLOSED;
+    await hooks["execute.before"]({ ...call("shell", { command: "git push origin main" }), id: "c_esc" });
+    const escalated = { action: "shell", resources: ["git push origin main"], effect: "ask", source: { type: "tool", id: "c_esc" } };
+    await hooks["permission.evaluate"](escalated);
+    assert.equal(escalated.effect, "allow");  // the fake answers "once"
+    assert.match(asserts.at(-1).metadata.reason, /was not available/);
+    assert.equal(asserts.at(-1).metadata.risk, undefined);  // no scores to show
+    delete process.env.JEV_GUARD_ESCALATE_CLOSED;
+    globalThis.fetch = (...args) => { requests++; return fetchImpl(...args); };
+
     // a refused prompt denies the call
     const rejecting = fakeOpenCodeV2({ reply: "reject" });
     await setup(rejecting.ctx, { log: () => {} });
