@@ -54,7 +54,7 @@ Pick your agent; every row is one command, then give it a key.
 | Cursor | plugin manifest included for marketplaces; solo users: `jev-guard install cursor` | deny · **ask** for shell and MCP (`preToolUse` can't ask) | flag |
 | pi | `pi install npm:jev-guard` (or `git:github.com/leepokai/jev-guard`) | block · **confirm dialog** | flag |
 | OpenCode 1.x | `"plugin": ["jev-guard"]` in `opencode.json` (0.2.1+) | throw on deny · **ask** via `permission.ask` for tools you set to `"ask"` | flag |
-| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | OpenCode's rules decide: a rule's allow runs untouched and a deny is final; only an **ask** is assessed, and Jev may then allow it silently, deny it, or leave the human prompt. Nothing is assessed before the rules have spoken, so an allowed call sends no file content. Results are not scanned unless `JEV_GUARD_SCAN_RESULTS=1` | flag |
+| OpenCode 2 | `opencode plugin add jev-guard` (or `"plugins": ["jev-guard"]`) | OpenCode's rules decide: a rule's allow runs untouched and a deny is final; only an **ask** is assessed, and Jev may then allow it silently, deny it, or raise the guard's own prompt — carrying the scores and, for an edit, the diff — so the user decides with the assessment in view. Nothing is assessed before the rules have spoken, so an allowed call sends no file content. Results are not scanned unless `JEV_GUARD_SCAN_RESULTS=1` | flag |
 | ACP | editor runs `jev-guard acp -- <agent>` | reject · **permission request** for `terminal/create`, `fs/write_text_file` | flag `fs/read_text_file`, `terminal/output` |
 
 Everything else goes through the npm package:

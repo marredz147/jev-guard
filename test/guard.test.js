@@ -584,8 +584,13 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
     const ask = { action: "shell", resources: ["git push origin main"], effect: "ask", source: { type: "tool", id: "c_ask" } };
     await hooks["permission.evaluate"](ask);
     assert.equal(requests, 1);
-    assert.equal(ask.effect, "ask");
-    assert.match(ask.message, /needs the user's approval/);
+    // Jev wanted a human, so the adapter raised its own prompt and the human's "allow" let the call run
+    assert.equal(ask.effect, "allow");
+    assert.equal(asserts.length, 1);
+    assert.equal(asserts[0].action, "jev-guard");
+    assert.equal(asserts[0].effect, "ask");
+    assert.match(asserts[0].metadata.reason, /needs the user's approval/);
+    assert.equal(typeof asserts[0].metadata.risk, "number");
 
     // a benign ask never bothers the user
     await hooks["execute.before"]({ ...call("shell", { command: "ls -la" }), id: "c_ls" });
@@ -620,8 +625,14 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
     assert.equal(unreachable.effect, "ask");
     globalThis.fetch = (...args) => { requests++; return fetchImpl(...args); };
 
-    // this adapter raises no permission of its own
-    assert.equal(asserts.length, 0);
+    // a refused prompt denies the call
+    const rejecting = fakeOpenCodeV2({ reply: "reject" });
+    await setup(rejecting.ctx, { log: () => {} });
+    await rejecting.hooks["execute.before"]({ ...call("shell", { command: "git push origin main" }), id: "c_rej" });
+    const refused = { action: "shell", resources: ["git push origin main"], effect: "ask", source: { type: "tool", id: "c_rej" } };
+    await rejecting.hooks["permission.evaluate"](refused);
+    assert.equal(refused.effect, "deny");
+    assert.equal(rejecting.asserts.length, 1);
 
     // result scanning is opt-in under the ask-only gate
     const scan = () => ({ ...call("webfetch", { url: "https://example.com" }), status: "completed",

@@ -4,12 +4,12 @@
 // change. OpenCode's own rules are the source of truth here: a rule's allow and deny are final, and only an `ask`
 // is sent to Jev, which may then allow it, deny it, or leave the human prompt in place. Nothing is assessed in
 // execute.before, so an allowed call costs no Jev request and sends no file content anywhere.
-import { assessAction, scanContent, collectText, preview, excerpt, INSTRUCTION_FILE } from "./guard.js";
+import { assessAction, scanContent, collectText, preview, previewDiff, excerpt, INSTRUCTION_FILE } from "./guard.js";
 import { scanInstructionsCached } from "./skills.js";
 import { buildContext } from "./context.js";
 import { readSession, remember } from "./session.js";
 
-export const ACTION = "jev-guard";  // this adapter raises no permission of its own; kept for the TUI entry
+export const ACTION = "jev-guard";  // permission action of the prompt raised when Jev wants a human
 const MAX_PENDING = 100;
 
 /** User and assistant text from V2's ctx.session.context() messages. */
@@ -28,6 +28,7 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   // The evaluate hook carries no tool input, only a source id, so execute.before records what is about to run.
   // Bounded: a session that never executes what it assesses must not grow this without limit.
   const pending = new Map();  // tool-call id → { tool, input, sessionID }
+  const asking = new Map();   // tool-call id → assessment message shown by the prompt we raise
   const rememberCall = (e) => {
     pending.set(e.id, { tool: e.tool, input: e.input, sessionID: e.sessionID });
     if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value);
@@ -41,6 +42,12 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   await ctx.tool.hook("execute.before", (e) => { rememberCall(e); });
 
   await ctx.permission.hook("evaluate", async (e) => {
+    if (e.action === ACTION) {  // our own prompt: carry the assessment, never assess a prompt
+      e.effect = "ask";
+      const id = e.source?.type === "tool" ? e.source.id : undefined;
+      if (id && asking.has(id)) e.message = asking.get(id);
+      return;
+    }
     if (e.effect !== "ask") return;  // a rule allowed or denied it: that is final, Jev is not consulted
     const id = e.source?.type === "tool" ? e.source.id : undefined;
     const call = id ? pending.get(id) : undefined;
@@ -56,9 +63,28 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
     if (!r) return;  // read-only tool, workspace write or skip list: the prompt stands as OpenCode made it
     remember(call.sessionID, "calls", { tool: call.tool, preview: preview(call.input, 100), level: r.level });
     e.message = r.message;
-    if (r.level === "allow") e.effect = "allow";
-    else if (r.level === "deny") e.effect = "deny";
-    // r.level === "ask" keeps the prompt, now carrying the assessment in its message
+    if (r.level === "allow") { e.effect = "allow"; return; }
+    if (r.level === "deny") { e.effect = "deny"; return; }
+    // Jev wants a human, and OpenCode's own dialog shows only the operation — not our numbers and,
+    // as far as 2.2.5 goes, not `e.message` either. So raise the prompt ourselves for this one
+    // call; ./tui renders its metadata above the composer. The native prompt is skipped by
+    // answering "allow" here once the human has allowed it, and turned into a deny if they refuse.
+    asking.set(id, r.message);
+    try {
+      await ctx.permission.assert({
+        sessionID: call.sessionID, agent: e.agent, action: ACTION, resources: [`${call.tool} ${preview(call.input)}`],
+        metadata: {
+          tool: call.tool, reason: r.message,
+          risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
+          diff: previewDiff(call.input),  // omitted by JSON for a call that changes no text
+        },
+        source: { type: "tool", id },
+      });
+      e.effect = "allow";
+    } catch (err) {
+      e.effect = "deny";
+      e.message = err?.message ?? "rejected";
+    } finally { asking.delete(id); }
   });
 
   await ctx.tool.hook("execute.after", async (e) => {
