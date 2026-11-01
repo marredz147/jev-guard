@@ -12,26 +12,30 @@ import { createSignal } from "solid-js";
 
 export const ACTION = "jev-guard";
 export const PANEL = "jev-guard";
-const MAX_ACTION_CHARS = 120;
+const MAX_COMMAND_CHARS = 160;
 
 const row = (parts) => parts.filter(Boolean).join(" · ");
 const num = (v, digits = 2) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : undefined);
 
-/** The ask as display lines: what Jev measured, what else it weighed, what is being asked for. */
+/** The ask as display pieces: which tool, what Jev measured, what else it weighed, the exact call. */
 export function describeAsk({ metadata = {}, resources = [], action = ACTION } = {}) {
+  const tool = typeof metadata.tool === "string" ? metadata.tool : undefined;
   const risk = num(metadata.risk, 1), approval = num(metadata.approval);
-  const facts = row([risk && `risk ${risk}/3`, approval && `approval p=${approval}`]);
-  if (!facts) {
+  const full = String(resources[0] ?? tool ?? action);
+  const command = tool && full.startsWith(`${tool} `) ? full.slice(tool.length + 1) : full;
+  const what = command.length > MAX_COMMAND_CHARS ? `${command.slice(0, MAX_COMMAND_CHARS - 1)}…` : command;
+
+  if (!risk && !approval) {
     const reason = typeof metadata.reason === "string" ? metadata.reason : `${action} needs approval`;
-    return { facts: reason, evidence: undefined, what: undefined };
+    return { tool, facts: reason, evidence: undefined, what };
   }
+  const facts = row([tool && `tool ${tool}`, risk && `risk ${risk}/3`, approval && `approval p=${approval}`]);
   const evidence = row([
     num(metadata.userRequested) && `user-asked p=${num(metadata.userRequested)}`,
     num(metadata.fromUntrusted) && `untrusted p=${num(metadata.fromUntrusted)}`,
     num(metadata.confidence) && `conf ${num(metadata.confidence)}`,
   ]);
-  const what = String(resources[0] ?? metadata.tool ?? action);
-  return { facts, evidence, what: what.length > MAX_ACTION_CHARS ? `${what.slice(0, MAX_ACTION_CHARS - 1)}…` : what };
+  return { tool, facts, evidence, what };
 }
 
 // Plain-JS equivalents of the host's JSX helpers (same calls the bundled plugins compile to).
@@ -46,25 +50,28 @@ const box = (props, children) => element("box", props, children);
 const text = (props, children) => element("text", props, children);
 
 /** Panel body: this session's ask in full, or a summary of asks pending elsewhere. */
-function panelView(asks, sessionID) {
+function panelView(asks, sessionID, theme = {}) {
+  const warn = theme.warning ?? theme.text?.default;
+  const muted = theme.text?.subdued;
   const root = box({ width: "100%", flexDirection: "column", paddingLeft: 1 });
   insert(root, () => {
     const all = asks();
     const own = all[sessionID];
     const ids = Object.keys(all);
-    const lines = [];
     if (own) {
-      lines.push(text({}, "⚠ jev-guard: this call needs your approval"));
-      if (own.facts) lines.push(text({}, own.facts));
-      if (own.evidence) lines.push(text({}, own.evidence));
-      if (own.what) lines.push(text({}, own.what));
-      lines.push(text({}, "Answer the permission prompt — this panel closes when you do."));
-    } else if (ids.length) {
-      lines.push(text({}, `jev-guard: ${ids.length} pending request${ids.length === 1 ? "" : "s"} in other sessions`));
-      for (const id of ids) lines.push(text({}, `${id} · ${[all[id].facts, all[id].what].filter(Boolean).join(" · ")}`));
+      return box({ width: "100%", flexDirection: "column" }, [
+        text({ fg: warn }, ["⚠ jev-guard — your approval is needed"]),
+        text({ fg: muted }, [own.facts]),
+        own.evidence && text({ fg: muted }, [own.evidence]),
+        own.what && box({ marginTop: 1, marginBottom: 1 }, [text({ fg: warn }, [`$ ${own.what}`])]),
+        text({ fg: muted }, ["Answer the permission prompt — this panel closes when you do."]),
+      ].filter(Boolean));
     }
-    if (!lines.length) return null;
-    return box({ width: "100%", flexDirection: "column" }, lines);
+    if (!ids.length) return null;
+    return box({ width: "100%", flexDirection: "column" }, [
+      text({ fg: warn }, [`jev-guard: ${ids.length} pending request${ids.length === 1 ? "" : "s"} in other sessions`]),
+      ...ids.map((id) => text({ fg: muted }, [`${id} · ${[all[id].facts, all[id].what].filter(Boolean).join(" · ")}`])),
+    ]);
   });
   return root;
 }
@@ -94,7 +101,7 @@ export function setup(ctx) {
   });
   const offSlot = ctx.ui.slot({
     append: "session.panel",
-    render: (input) => (input?.name === PANEL ? panelView(asks, input.sessionID) : null),
+    render: (input) => (input?.name === PANEL ? panelView(asks, input.sessionID, ctx.theme) : null),
   });
   return () => { offAsk?.(); offReply?.(); offSlot?.(); if (panelOpen()) ctx.ui.panel.close(); };
 }
