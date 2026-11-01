@@ -1,4 +1,5 @@
 // The two checks every adapter shares. Code owns the policy; Jev answers narrow questions.
+import { isAbsolute, relative, resolve } from "node:path";
 import { ask } from "./jev.js";
 
 export const SCAN_QUESTIONS = {
@@ -107,6 +108,32 @@ const READ_ONLY = new Set(["read", "glob", "grep", "ls", "list", "find", "webfet
 const NEVER_EXTERNAL = new Set(["edit", "write", "multiedit", "notebookedit", "apply_patch", "patch", "delete", "glob", "grep", "ls", "list", "find", "todowrite", "todoread",
   "askuserquestion", "exitplanmode", "write_file", "replace", "write_todos", "write_to_file", "replace_file_content"]);
 // task/agent/subagent (OpenCode 2) sit only in READ_ONLY: the sub-agent's own calls are judged one by one, but what it brings back can carry external text.
+// Files a "workspace write" can touch: ordinary edits inside the project the agent was pointed at. Shell tools are
+// deliberately absent — a command can leave the workspace whatever its text says — and patch-style tools are absent
+// because their input names no single target to check.
+const WORKSPACE_WRITES = new Set(["edit", "write", "multiedit", "notebookedit", "notebook_edit", "create_file",
+  "write_file", "replace_file_content", "delete"]);
+// Secrets and history stay judged even inside the workspace.
+const PROTECTED_PATH = /(^|[\\/])(\.git|secrets)([\\/]|$)|(^|[\\/])\.env(\.[^\\/]*)?$|\.(pem|key|p12|pfx)$|(^|[\\/])id_(rsa|ed25519)[^\\/]*$/i;
+
+/** The path a write tool is about to touch, if its input names one. */
+export function targetPath(input) {
+  const v = typeof input === "string" ? input
+    : input?.file_path ?? input?.filePath ?? input?.path ?? input?.TargetFile ?? input?.AbsolutePath ?? input?.notebook_path ?? input?.target;
+  return typeof v === "string" && v ? v : undefined;
+}
+
+/** True when JEV_GUARD_WORKSPACE_WRITES=1 and this call edits a non-secret file inside `cwd`, so Jev is never asked. */
+export function workspaceWrite({ tool, input, cwd, env = process.env }) {
+  if (env.JEV_GUARD_WORKSPACE_WRITES !== "1") return false;
+  if (!WORKSPACE_WRITES.has(String(tool ?? "").toLowerCase())) return false;
+  const target = targetPath(input);
+  if (!target || !cwd || PROTECTED_PATH.test(target)) return false;
+  const root = resolve(cwd);
+  const rel = relative(root, resolve(root, target));
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 export const MIN_SCAN_CHARS = 200;
 const MAX_STATE_CHARS = 60_000; // Jev's state ceiling is ~32k tokens
 
@@ -137,6 +164,7 @@ export async function assessAction({ tool, input, cwd, agent, context }, opts = 
   const env = opts.env ?? process.env;
   const name = String(tool ?? "").toLowerCase();
   if (READ_ONLY.has(name) || list(env.JEV_GUARD_SKIP_TOOLS).has(name)) return null;
+  if (workspaceWrite({ tool, input, cwd, env })) return null;
   const a = await ask(context ? { agent, tool, input, cwd, context } : { agent, tool, input, cwd }, ACTION_QUESTIONS, opts);
   const { level, why } = decide(a, thresholds(env));
   const stats = `risk ${a.risk.score.toFixed(1)}/3, approval p=${(a.approval.p ?? 0).toFixed(2)}` +

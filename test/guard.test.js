@@ -51,6 +51,27 @@ test("collectText and truncate", () => {
   assert.ok(t.length < 120 && t.endsWith("END") && t.includes("truncated"));
 });
 
+test("workspace writes skip Jev only with JEV_GUARD_WORKSPACE_WRITES=1", async () => {
+  const cwd = "/home/u/proj";
+  const write = (tool, path) => ({ tool, input: { filePath: path }, cwd });
+  // default behaviour is unchanged: an in-workspace edit is still assessed
+  assert.notEqual(await assessAction(write("edit", "/home/u/proj/src/a.js"), opts), null);
+  const on = { env: { ...env, JEV_GUARD_WORKSPACE_WRITES: "1" }, fetchImpl };
+  assert.equal(await assessAction(write("edit", "/home/u/proj/src/a.js"), on), null);
+  assert.equal(await assessAction(write("write", "docs/b.md"), on), null);
+  assert.equal(await assessAction(write("delete", "./tmp/x"), on), null);
+  // outside the workspace, secrets and shell stay judged
+  assert.notEqual(await assessAction(write("edit", "/home/u/other/a.js"), on), null);
+  assert.notEqual(await assessAction(write("edit", "/home/u/proj/.env"), on), null);
+  assert.notEqual(await assessAction(write("edit", "/home/u/proj/.env.local"), on), null);
+  assert.notEqual(await assessAction(write("edit", "/home/u/proj/.git/config"), on), null);
+  assert.notEqual(await assessAction(write("edit", "/home/u/proj/secrets/key.txt"), on), null);
+  assert.notEqual(await assessAction({ tool: "bash", input: { command: "rm -r src" }, cwd }, on), null);
+  // a patch names no single target, so it cannot qualify
+  assert.notEqual(await assessAction({ tool: "apply_patch", input: { patch: "*** Begin Patch" }, cwd }, on), null);
+});
+
+
 test("assessAction skips read-only tools, scores the rest", async () => {
   assert.equal(await assessAction({ tool: "Read", input: {} }, opts), null);
   assert.equal((await assessAction({ tool: "Bash", input: { command: "rm -rf /" } }, opts)).level, "deny");

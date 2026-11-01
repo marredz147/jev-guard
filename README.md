@@ -171,6 +171,7 @@ Results shorter than 200 characters and results of local edit/search tools are s
 | `JEV_GUARD_SCAN_CACHE` | `~/.jev-guard/scan-cache.json` | instruction-file scan cache |
 | `JEV_GUARD_SKIP_TOOLS` | | comma-separated tool names never assessed |
 | `JEV_GUARD_SKIP_SCAN` | | comma-separated tool names whose results are never scanned |
+| `JEV_GUARD_WORKSPACE_WRITES` | unset | `1` = an `edit`/`write`/`multiedit`/`delete` of a file inside the project directory is not assessed; paths outside it, `.git`, `secrets`, `.env*`, keys and every shell/patch tool stay assessed |
 | `JEV_GUARD_FAIL_CLOSED` | unset | if set, an unreachable Jev **denies** instead of allowing |
 | `JEV_MODEL` | `jev-latest` / `jev-1.13` / `typesafe-ai/jev` | model id for TypeSafe or `JEV_BASE_URL` / OpenRouter / the gateway |
 | `JEV_BASE_URL` | unset | any System One server (`<base>/v1/systemone`), e.g. a local Kev; takes precedence over every key |
