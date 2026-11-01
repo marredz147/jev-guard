@@ -27,10 +27,10 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
   const cwd = ctx.location?.directory;
   // The evaluate hook carries no tool input, only a source id, so execute.before records what is about to run.
   // Bounded: a session that never executes what it assesses must not grow this without limit.
-  const pending = new Map();  // tool-call id → { tool, input, sessionID }
+  const pending = new Map();  // tool-call id → { tool, input, sessionID, messageID }
   const asking = new Map();   // tool-call id → assessment message shown by the prompt we raise
   const rememberCall = (e) => {
-    pending.set(e.id, { tool: e.tool, input: e.input, sessionID: e.sessionID });
+    pending.set(e.id, { tool: e.tool, input: e.input, sessionID: e.sessionID, messageID: e.messageID });
     if (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value);
   };
   // The session's messages; empty when they can't be read, so the call is judged on its own.
@@ -78,7 +78,7 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
           risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
           diff: previewDiff(call.input),  // omitted by JSON for a call that changes no text
         },
-        source: { type: "tool", id },
+        source: { type: "tool", messageID: call.messageID, id },  // both are required by AssertInput
       });
       e.effect = "allow";
     } catch (err) {

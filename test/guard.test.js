@@ -591,6 +591,9 @@ test("opencode 2: rules decide; Jev is consulted only for a native ask", async (
     assert.equal(asserts[0].effect, "ask");
     assert.match(asserts[0].metadata.reason, /needs the user's approval/);
     assert.equal(typeof asserts[0].metadata.risk, "number");
+    // AssertInput demands both halves of the tool source, or the whole call is rejected
+    assert.equal(asserts[0].source.id, "c_ask");
+    assert.equal(asserts[0].source.messageID, "msg_1");
 
     // a benign ask never bothers the user
     await hooks["execute.before"]({ ...call("shell", { command: "ls -la" }), id: "c_ls" });
