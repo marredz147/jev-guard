@@ -1,16 +1,17 @@
 // OpenCode 2 TUI plugin. The server half (src/opencode-v2.js) decides what needs approval, but its
 // Context has no client and no UI channel: OpenCode's permission dialog renders only the action name
 // for a plugin-defined action ("Call tool jev-guard" / "Tool: jev-guard"). A toast is wrong for this:
-// it is broadcast to every open TUI, it expires after a few seconds, and it cannot be dismissed
-// (the plugin-facing Toast exposes only `show`). The host does publish `session.composer.top`, a slot
-// bound to one session and kept alive while its content is rendered, so the reasoning lives there:
-// it appears above the composer of the session that is asking and disappears when the request is
-// answered (permission.replied), with no timer of its own.
+// it is broadcast to every open TUI, it expires on a timer, and the plugin-facing Toast exposes only
+// `show`. The host does publish `session.panel`, a slot selected by `ui.panel.open(name)` and kept
+// rendered while this plugin keeps it open, so the description lives there: it appears as its own
+// panel while a request is pending, the asking itself stays OpenCode's normal permission prompt, and
+// any answer (allow or reject, from any client) closes the panel again.
 import { Plugin } from "@opencode/plugin/tui";
 import { createElement, insert, setProp } from "@opentui/solid";
 import { createSignal } from "solid-js";
 
 export const ACTION = "jev-guard";
+export const PANEL = "jev-guard";
 const MAX_ACTION_CHARS = 120;
 
 const row = (parts) => parts.filter(Boolean).join(" · ");
@@ -44,42 +45,58 @@ const element = (tag, props = {}, children = []) => {
 const box = (props, children) => element("box", props, children);
 const text = (props, children) => element("text", props, children);
 
-/** A banner for one session: empty while it has no ask, reactive when it does. */
-function banner(asks, sessionID) {
+/** Panel body: this session's ask in full, or a summary of asks pending elsewhere. */
+function panelView(asks, sessionID) {
   const root = box({ width: "100%", flexDirection: "column", paddingLeft: 1 });
   insert(root, () => {
-    const ask = asks()[sessionID];
-    if (!ask) return null;
-    return box({ width: "100%", flexDirection: "column" }, [
-      text({}, "⚠ jev-guard: this call needs your approval"),
-      ask.facts && text({}, ask.facts),
-      ask.evidence && text({}, ask.evidence),
-      ask.what && text({}, ask.what),
-    ].filter(Boolean));
+    const all = asks();
+    const own = all[sessionID];
+    const ids = Object.keys(all);
+    const lines = [];
+    if (own) {
+      lines.push(text({}, "⚠ jev-guard: this call needs your approval"));
+      if (own.facts) lines.push(text({}, own.facts));
+      if (own.evidence) lines.push(text({}, own.evidence));
+      if (own.what) lines.push(text({}, own.what));
+      lines.push(text({}, "Answer the permission prompt — this panel closes when you do."));
+    } else if (ids.length) {
+      lines.push(text({}, `jev-guard: ${ids.length} pending request${ids.length === 1 ? "" : "s"} in other sessions`));
+      for (const id of ids) lines.push(text({}, `${id} · ${[all[id].facts, all[id].what].filter(Boolean).join(" · ")}`));
+    }
+    if (!lines.length) return null;
+    return box({ width: "100%", flexDirection: "column" }, lines);
   });
   return root;
 }
 
 export function setup(ctx) {
   const [asks, setAsks] = createSignal({});  // sessionID -> describeAsk(...)
-  const forget = (sessionID) => setAsks((prev) => {
-    if (!(sessionID in prev)) return prev;
-    const next = { ...prev };
-    delete next[sessionID];
-    return next;
-  });
+  const panelOpen = () => ctx.ui.panel.current()?.name === PANEL;
+  const closeWhenIdle = () => { if (!Object.keys(asks()).length && panelOpen()) ctx.ui.panel.close(); };
+
   const offAsk = ctx.data.on("permission.asked", ({ data }) => {
     if (data?.action !== ACTION || !data.sessionID) return;
     const described = describeAsk(data);
     setAsks((prev) => ({ ...prev, [data.sessionID]: described }));
+    if (!panelOpen()) ctx.ui.panel.open(PANEL, { presentation: "panel" });
   });
-  // The reply event carries no request id match guarantee and no action, but the ask is per session:
-  // answering it anywhere clears the banner in every window showing that session.
+  // The reply event carries no action and no guaranteed request id, but asks are one per session:
+  // answering one anywhere (desktop, mobile client, Orca) closes the panel in every TUI showing it.
   const offReply = ctx.data.on("permission.replied", ({ data }) => {
-    if (data?.sessionID) forget(data.sessionID);
+    if (!data?.sessionID) return;
+    setAsks((prev) => {
+      if (!(data.sessionID in prev)) return prev;
+      const next = { ...prev };
+      delete next[data.sessionID];
+      return next;
+    });
+    closeWhenIdle();
   });
-  const offSlot = ctx.ui.slot({ append: "session.composer.top", render: ({ sessionID }) => banner(asks, sessionID) });
-  return () => { offAsk?.(); offReply?.(); offSlot?.(); };
+  const offSlot = ctx.ui.slot({
+    append: "session.panel",
+    render: (input) => (input?.name === PANEL ? panelView(asks, input.sessionID) : null),
+  });
+  return () => { offAsk?.(); offReply?.(); offSlot?.(); if (panelOpen()) ctx.ui.panel.close(); };
 }
 
 export default Plugin.define({ id: ACTION, setup });
