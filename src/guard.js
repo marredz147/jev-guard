@@ -247,6 +247,33 @@ export function preview(input, max = 160) {
   return String(s).replace(/\s+/g, " ").slice(0, max);
 }
 
+/** A compact `- old` / `+ new` view of what an edit or write is about to change, trimmed to the lines that differ. */
+export function previewDiff(input, { maxLines = 12, maxChars = 700, maxLineChars = 160 } = {}) {
+  const oldText = input?.oldString ?? input?.old_string ?? input?.oldText;
+  const newText = input?.newString ?? input?.new_string ?? input?.newText ?? input?.content;
+  if (typeof oldText !== "string" && typeof newText !== "string") return undefined;
+  const oldLines = typeof oldText === "string" && oldText !== "" ? oldText.split("\n") : [];
+  const newLines = typeof newText === "string" && newText !== "" ? newText.split("\n") : [];
+  let head = 0;
+  while (head < oldLines.length && head < newLines.length && oldLines[head] === newLines[head]) head++;
+  let tail = 0;
+  while (tail < oldLines.length - head && tail < newLines.length - head &&
+    oldLines[oldLines.length - 1 - tail] === newLines[newLines.length - 1 - tail]) tail++;
+  const lines = [
+    ...oldLines.slice(head, oldLines.length - tail).map((l) => `- ${l}`),
+    ...newLines.slice(head, newLines.length - tail).map((l) => `+ ${l}`),
+  ].map((l) => (l.length > maxLineChars ? `${l.slice(0, maxLineChars - 1)}…` : l));
+  if (!lines.length) return ["(no textual change)"];
+  const shown = [];
+  let chars = 0;
+  for (const line of lines) {
+    if (shown.length >= maxLines || chars + line.length > maxChars) break;
+    shown.push(line); chars += line.length + 1;
+  }
+  if (shown.length < lines.length) shown.push(`… ${lines.length - shown.length} more line(s)`);
+  return shown;
+}
+
 export function truncate(text, max = MAX_STATE_CHARS) {
   if (text.length <= max) return text;
   const tail = Math.floor(max / 4);  // injections like to hide at the end

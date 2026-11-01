@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
-import { decide, collectText, truncate, assessAction, scanContent } from "../src/guard.js";
+import { decide, collectText, truncate, assessAction, scanContent, previewDiff } from "../src/guard.js";
 import { handleHook } from "../src/hook.js";
 import { runProxy } from "../src/acp.js";
 
@@ -49,6 +49,22 @@ test("collectText and truncate", () => {
   assert.equal(collectText({ content: [{ type: "text", text: "a" }], stdout: "b", n: 1 }), "a\nb");
   const t = truncate("x".repeat(100) + "END", 40);
   assert.ok(t.length < 120 && t.endsWith("END") && t.includes("truncated"));
+});
+
+test("previewDiff shows only the changed lines", () => {
+  const lines = previewDiff({ oldString: "a\nb\nc", newString: "a\nB\nc" });
+  assert.deepEqual(lines, ["- b", "+ B"]);
+  // a pure insertion keeps just the added line, a write shows its content as additions
+  assert.deepEqual(previewDiff({ oldString: "", newString: "one\ntwo" }), ["+ one", "+ two"]);
+  assert.deepEqual(previewDiff({ content: "fresh" }), ["+ fresh"]);
+  // a shell call has no text to diff
+  assert.equal(previewDiff({ command: "ls" }), undefined);
+  // capped, with a count for what was left out
+  const many = Array.from({ length: 40 }, (_, i) => `+ line${i}`);
+  assert.equal(many.length, 40);
+  const capped = previewDiff({ newString: Array.from({ length: 40 }, (_, i) => `line${i}`).join("\n") });
+  assert.equal(capped.length, 13);
+  assert.match(capped.at(-1), /^… 28 more line\(s\)$/);
 });
 
 test("workspace writes skip Jev only with JEV_GUARD_WORKSPACE_WRITES=1", async () => {
@@ -569,6 +585,10 @@ test("opencode 2: denies, prompts on risky calls even when rules allow, flags re
     assert.equal(typeof asserts[0].metadata.risk, "number");
     assert.equal(typeof asserts[0].metadata.approval, "number");
     assert.equal(notifications.length, 0);
+    // an edit that needs approval carries what it changes, so the banner can draw the diff
+    await hooks["execute.before"](call("edit", { filePath: "/tmp/diff.txt", oldString: "a", newString: "git push" }));
+    assert.equal(asserts.length, 2);
+    assert.deepEqual(asserts[1].metadata.diff, ["- a", "+ git push"]);
 
     const rejecting = fakeOpenCodeV2({ reply: "reject" });
     await setup(rejecting.ctx, { log: () => {} });

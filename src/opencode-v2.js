@@ -3,7 +3,7 @@
 // ones the user's rules already allow, passes ctx.permission.hook("evaluate") with an effect the plugin may change.
 // A risky call asks its own question through ctx.permission.assert, so it gets OpenCode's real approval prompt
 // whether or not the tool would have checked a permission itself; OpenCode's own rules still apply afterwards.
-import { assessAction, scanContent, collectText, preview, excerpt, INSTRUCTION_FILE } from "./guard.js";
+import { assessAction, scanContent, collectText, preview, previewDiff, excerpt, INSTRUCTION_FILE } from "./guard.js";
 import { scanInstructionsCached } from "./skills.js";
 import { buildContext } from "./context.js";
 import { readSession, remember } from "./session.js";
@@ -60,6 +60,7 @@ export async function setup(ctx, { log = (m) => console.warn(m) } = {}) {
         metadata: {
           tool: e.tool, reason: r.message,
           risk: r.risk, approval: r.approval, userRequested: r.userRequested, fromUntrusted: r.fromUntrusted, confidence: r.confidence,
+          diff: previewDiff(e.input),  // omitted by JSON for a call that changes no text
         },
         source: { type: "tool", messageID: e.messageID, id: e.id },
       });

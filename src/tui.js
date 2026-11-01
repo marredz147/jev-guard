@@ -26,19 +26,20 @@ const SCORES = [
   ["confidence", (m) => num(m.confidence), "0–1"],
 ];
 
-/** The ask as display pieces: which tool, one bullet per Jev score, the exact call. */
+/** The ask as display pieces: which tool, one bullet per Jev score, the exact call, and what the call changes. */
 export function describeAsk({ metadata = {}, resources = [], action = ACTION } = {}) {
   const tool = typeof metadata.tool === "string" ? metadata.tool : undefined;
   const full = resources[0] == null ? undefined : String(resources[0]);
   const command = full === undefined ? undefined : tool && full.startsWith(`${tool} `) ? full.slice(tool.length + 1) : full;
   const what = command?.length > MAX_COMMAND_CHARS ? `${command.slice(0, MAX_COMMAND_CHARS - 1)}…` : command;
+  const diff = Array.isArray(metadata.diff) && metadata.diff.length ? metadata.diff.map(String) : undefined;
   const scores = SCORES
     .map(([label, read, range]) => [label, read(metadata), range])
     .filter(([, value]) => value !== undefined)
     .map(([label, value, range]) => `• ${label} ${value} (${range})`);
-  if (scores.length) return { tool, scores, what };
+  if (scores.length) return { tool, scores, what, diff };
   const reason = typeof metadata.reason === "string" ? metadata.reason : `${action} needs approval`;
-  return { tool, scores, reason, what };
+  return { tool, scores, reason, what, diff };
 }
 
 // Plain-JS equivalents of the host's JSX helpers (same calls the bundled plugins compile to).
@@ -56,12 +57,16 @@ const text = (props, children) => element("text", props, children);
 export function bannerView(asks, sessionID, theme = {}) {
   const warn = theme.warning ?? theme.text?.default;
   const muted = theme.text?.subdued;
+  const added = theme.success ?? theme.text?.default;
+  const removed = theme.error ?? theme.warning ?? theme.text?.default;
   const root = box({ width: "100%", flexDirection: "column", paddingLeft: 1 });
   insert(root, () => {
     const ask = asks()[sessionID];
     if (!ask) return null;
+    const diffLine = (line) => text({ fg: line.startsWith("+") ? added : line.startsWith("-") ? removed : muted }, [line]);
     return box({ width: "100%", flexDirection: "column", marginTop: 1 }, [
       text({ fg: warn }, [`⚠ jev-guard — ${ask.tool ?? "this call"} needs your approval`]),
+      ask.diff?.length && box({ flexDirection: "column", marginTop: 1 }, ask.diff.map(diffLine)),
       ...(ask.scores.length
         ? ask.scores.map((line) => text({ fg: muted }, [line]))
         : [text({ fg: muted }, [ask.reason])]),
